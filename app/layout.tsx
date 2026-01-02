@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "NoseBoop - Find Your Dog's Perfect Match",
   description:
     "Meet new and interesting dogs nearby. The premier dating app for dogs and their owners.",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
