@@ -22,7 +22,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const isAuthCall = error.config?.url?.startsWith('/api/auth/')
+    if (error.response?.status === 401 && !isAuthCall) {
       localStorage.removeItem('token')
       window.location.href = '/'
     }

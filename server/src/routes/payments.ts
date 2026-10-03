@@ -7,22 +7,29 @@ import User from '../models/User'
 
 const router = express.Router()
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || '',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
-})
+// Created on first use so the keys loaded by dotenv in index.ts are available
+let razorpay: Razorpay | null = null
+const getRazorpay = () => {
+  if (!razorpay) {
+    razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID || '',
+      key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+    })
+  }
+  return razorpay
+}
 
+// Monthly prices in INR; the server is the source of truth for what is charged
 const planDetails: Record<string, { name: string; price: number }> = {
   plus: { name: 'Plus', price: 0 },
-  gold: { name: 'Gold', price: 15 },
-  premium: { name: 'Premium', price: 29 },
+  gold: { name: 'Gold', price: 899 },
+  premium: { name: 'Premium', price: 1499 },
 }
 
 // Create order
 router.post('/create-order', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { planId, amount } = req.body
+    const { planId } = req.body
 
     if (!planId || !planDetails[planId]) {
       return res.status(400).json({ message: 'Invalid plan ID' })
@@ -34,12 +41,16 @@ router.post('/create-order', authenticate, async (req: AuthRequest, res: Respons
 
     const plan = planDetails[planId]
 
-    // Create Razorpay order
-    // Note: Razorpay amounts are in paise (smallest currency unit)
-    // For USD, we'll use INR equivalent or convert appropriately
+    if (plan.price === 0) {
+      return res.status(400).json({ message: 'This plan does not require payment' })
+    }
+
+    // Razorpay amounts are in paise
+    const amount = plan.price * 100
+
     const options = {
-      amount: amount, // Amount in paise (for INR) or cents (for USD)
-      currency: 'INR', // Razorpay primarily supports INR, but can work with USD in some cases
+      amount,
+      currency: 'INR',
       receipt: `order_${Date.now()}_${req.user._id}`,
       notes: {
         userId: req.user._id.toString(),
@@ -48,13 +59,13 @@ router.post('/create-order', authenticate, async (req: AuthRequest, res: Respons
       },
     }
 
-    const razorpayOrder = await razorpay.orders.create(options)
+    const razorpayOrder = await getRazorpay().orders.create(options)
 
     // Save payment record
     const payment = new Payment({
       userId: req.user._id,
       orderId: razorpayOrder.id,
-      amount: amount / 100, // Convert from paise to currency unit
+      amount: plan.price,
       currency: razorpayOrder.currency || 'INR',
       planId: planId,
       planName: plan.name,
@@ -79,8 +90,7 @@ router.post('/create-order', authenticate, async (req: AuthRequest, res: Respons
 // Verify payment
 router.post('/verify', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, planId } =
-      req.body
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body
 
     if (!req.user) {
       return res.status(401).json({ message: 'User not authenticated' })
@@ -93,7 +103,9 @@ router.post('/verify', authenticate, async (req: AuthRequest, res: Response) => 
       .update(text)
       .digest('hex')
 
-    if (generatedSignature !== razorpay_signature) {
+    const expected = Buffer.from(generatedSignature)
+    const received = Buffer.from(String(razorpay_signature || ''))
+    if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
       return res.status(400).json({ message: 'Invalid payment signature' })
     }
 
@@ -107,6 +119,19 @@ router.post('/verify', authenticate, async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ message: 'Payment record not found' })
     }
 
+    // The plan comes from the stored order, not from the request
+    const planId = payment.planId
+    const plan = planDetails[planId]
+
+    // Repeat calls for an already verified payment do not extend the subscription
+    if (payment.status === 'completed') {
+      const user = await User.findById(req.user._id)
+      return res.json({
+        message: 'Payment already verified',
+        subscription: user?.subscription,
+      })
+    }
+
     // Update payment status
     payment.status = 'completed'
     payment.razorpayPaymentId = razorpay_payment_id
@@ -115,7 +140,6 @@ router.post('/verify', authenticate, async (req: AuthRequest, res: Response) => 
     await payment.save()
 
     // Update user subscription
-    const plan = planDetails[planId]
     const startDate = new Date()
     const endDate = new Date()
     endDate.setMonth(endDate.getMonth() + 1) // 1 month subscription

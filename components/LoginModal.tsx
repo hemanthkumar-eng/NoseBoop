@@ -1,11 +1,15 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import axios from 'axios'
+import { FormEvent, useEffect, useState } from 'react'
+import { authService } from '@/lib/auth'
 
 export default function LoginModal() {
-  const router = useRouter()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     const modal = document.getElementById('login-modal')
@@ -36,18 +40,25 @@ export default function LoginModal() {
     }
   }, [])
 
-  const handleGoogleLogin = async () => {
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setSubmitting(true)
     try {
-      // In a real app, you would implement OAuth flow here
-      // For now, this is a placeholder
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/google`, {})
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token)
-        router.push('/dashboard')
+      if (mode === 'register') {
+        await authService.register(email, password, name)
+      } else {
+        await authService.login(email, password)
       }
-    } catch (error) {
-      console.error('Login error:', error)
-      alert('Login failed. Please try again.')
+      setPassword('')
+      const modal = document.getElementById('login-modal')
+      if (modal) {
+        modal.style.display = 'none'
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Something went wrong. Please try again.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -64,25 +75,65 @@ export default function LoginModal() {
             style={{ width: '48px', height: '48px' }}
           />
         </div>
-        <h2 className="login-modal-title">Get Started</h2>
+        <h2 className="login-modal-title">
+          {mode === 'register' ? 'Create Account' : 'Get Started'}
+        </h2>
         <p className="login-modal-desc">
           By tapping Log In or Continue, you agree to our
           <a href="#" className="login-modal-link"> Terms</a>. Learn how we process your
           data in our <a href="#" className="login-modal-link">Privacy Policy</a>, and
           <a href="#" className="login-modal-link"> Cookie Policy</a>.
         </p>
-        <button className="login-modal-google" onClick={handleGoogleLogin}>
-          <img
-            src="https://img.icons8.com/color/24/000000/google-logo.png"
-            alt="Google Logo"
-            style={{ verticalAlign: 'middle', marginRight: '8px' }}
+        <form onSubmit={handleSubmit}>
+          {mode === 'register' && (
+            <input
+              type="text"
+              className="form-control mb-2"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          )}
+          <input
+            type="email"
+            className="form-control mb-2"
+            placeholder="Email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
           />
-          Continue with Google
-        </button>
+          <input
+            type="password"
+            className="form-control mb-3"
+            placeholder="Password"
+            autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={6}
+            required
+          />
+          {error && (
+            <p className="text-danger small mb-2" role="alert">
+              {error}
+            </p>
+          )}
+          <button type="submit" className="login-modal-google" disabled={submitting}>
+            {submitting ? 'Please wait...' : mode === 'register' ? 'Create Account' : 'Log In'}
+          </button>
+        </form>
         <div className="login-modal-more-options">
-          <a href="#" className="login-modal-link">
-            More Options
-          </a>
+          <button
+            type="button"
+            className="btn btn-link p-0 login-modal-link"
+            onClick={() => {
+              setError(null)
+              setMode(mode === 'register' ? 'login' : 'register')
+            }}
+          >
+            {mode === 'register' ? 'Already have an account? Log in' : 'New here? Create an account'}
+          </button>
         </div>
         <div className="login-modal-get-app">
           <div className="login-modal-get-app-title">Get the app!</div>

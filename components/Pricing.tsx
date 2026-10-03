@@ -105,10 +105,7 @@ export default function Pricing() {
       // Create order with Razorpay
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_URL}/api/payments/create-order`,
-        {
-          planId: plan.planId,
-          amount: plan.price * 100, // Convert to paise
-        },
+        { planId: plan.planId },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -138,7 +135,6 @@ export default function Pricing() {
                   razorpay_order_id: paymentResponse.razorpay_order_id,
                   razorpay_payment_id: paymentResponse.razorpay_payment_id,
                   razorpay_signature: paymentResponse.razorpay_signature,
-                  planId: plan.planId,
                 },
                 {
                   headers: {

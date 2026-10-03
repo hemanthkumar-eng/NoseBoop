@@ -35,7 +35,7 @@ const PaymentSchema = new Schema<IPayment>(
     },
     currency: {
       type: String,
-      default: 'USD',
+      default: 'INR',
     },
     planId: {
       type: String,
